@@ -16,6 +16,8 @@ import ssl
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from email.message import EmailMessage
 from getpass import getpass
 from datetime import datetime, timedelta, timezone
@@ -40,6 +42,7 @@ SMTP_PORT = int(os.environ.get("CHRONOSWAP_SMTP_PORT", "587"))
 SMTP_USER = os.environ.get("CHRONOSWAP_SMTP_USER", "")
 SMTP_PASSWORD = os.environ.get("CHRONOSWAP_SMTP_PASSWORD", "")
 EMAIL_FROM = os.environ.get("CHRONOSWAP_EMAIL_FROM", SMTP_USER)
+BREVO_API_KEY = os.environ.get("CHRONOSWAP_BREVO_API_KEY", "")   # ส่งเมลผ่าน HTTPS (ใช้บนโฮสต์ที่บล็อกพอร์ต SMTP เช่น Render free)
 PUBLIC_URL = (os.environ.get("CHRONOSWAP_PUBLIC_URL") or os.environ.get("RENDER_EXTERNAL_URL")
               or f"http://{HOST}:{PORT}").rstrip("/")
 BOOTSTRAP_ADMIN_EMAIL = os.environ.get("CHRONOSWAP_ADMIN_EMAIL", "").strip().lower()
@@ -538,6 +541,24 @@ def deliver_email_token(user_id: int, purpose: str) -> tuple[bool, str]:
     subject = "ยืนยันอีเมล ChronoSwap" if purpose == "verify_email" else "ตั้งรหัสผ่าน ChronoSwap ใหม่"
     instruction = "ยืนยันอีเมล" if purpose == "verify_email" else "ตั้งรหัสผ่านใหม่"
     text_body = f"สวัสดี {recipient['full_name']}\n\nกดลิงก์นี้เพื่อ{instruction}:\n{link}\n\nลิงก์นี้หมดอายุใน {24 if purpose == 'verify_email' else 1} ชั่วโมง หากคุณไม่ได้เป็นผู้เริ่มคำขอ สามารถละเว้นอีเมลนี้ได้"
+    if BREVO_API_KEY and EMAIL_FROM:
+        try:
+            payload = json.dumps({
+                "sender": {"name": "ChronoSwap", "email": EMAIL_FROM},
+                "to": [{"email": recipient["email"], "name": recipient["full_name"]}],
+                "subject": subject,
+                "textContent": text_body,
+            }).encode("utf-8")
+            request = urllib.request.Request("https://api.brevo.com/v3/smtp/email", data=payload, method="POST",
+                                             headers={"api-key": BREVO_API_KEY, "content-type": "application/json",
+                                                      "accept": "application/json"})
+            with urllib.request.urlopen(request, timeout=15) as response:
+                if 200 <= response.status < 300:
+                    return True, ""
+            return False, link if DEV_EMAIL_LINKS else ""
+        except (OSError, urllib.error.URLError) as error:
+            print(f"ChronoSwap email delivery failed (Brevo API): {type(error).__name__} {getattr(error, 'code', '')}")
+            return False, link if DEV_EMAIL_LINKS else ""
     if SMTP_HOST and EMAIL_FROM:
         try:
             message = EmailMessage()
