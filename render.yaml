@@ -1,0 +1,30 @@
+# Render Blueprint — ใช้กับ "New > Blueprint" ได้เลย
+# หมายเหตุ: Persistent Disk ต้องใช้แพ็กเกจเสียเงิน (ไม่ใช่ free) — เช็กราคาปัจจุบันที่ render.com/pricing
+services:
+  - type: web
+    name: chronoswap
+    runtime: python
+    plan: starter
+    buildCommand: echo "no dependencies to install"
+    startCommand: python server.py
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+      - key: CHRONOSWAP_DB
+        value: /var/data/chronoswap.sqlite3
+      - key: CHRONOSWAP_SEED_DEMO
+        value: "0"
+      - key: CHRONOSWAP_COOKIE_SECURE
+        value: "1"
+      - key: CHRONOSWAP_ADMIN_EMAIL
+        sync: false
+      - key: CHRONOSWAP_ADMIN_PASSWORD
+        sync: false
+      # ตั้งเพิ่มใน Dashboard เมื่อพร้อมส่งอีเมลจริง:
+      # CHRONOSWAP_SMTP_HOST, CHRONOSWAP_SMTP_PORT, CHRONOSWAP_SMTP_USER,
+      # CHRONOSWAP_SMTP_PASSWORD, CHRONOSWAP_EMAIL_FROM
+    disk:
+      name: chronoswap-data
+      mountPath: /var/data
+      sizeGB: 1

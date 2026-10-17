@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f8f6">
+  <meta name="description" content="แลกเปลี่ยนทักษะกับเพื่อนนักศึกษา ใช้เวลาเป็นเครดิต ไม่ต้องใช้เงิน">
+  <title>ChronoSwap — แลกทักษะด้วยเวลา</title>
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="site-shell">
+    <header class="topbar">
+      <a class="brand" href="#home" aria-label="ChronoSwap หน้าหลัก">
+        <img src="/mark.svg" alt="" width="38" height="38">
+        <span>chrono<span class="brand-accent">swap</span><small>เวลาแลกเปลี่ยนความรู้</small></span>
+      </a>
+      <nav class="main-nav" aria-label="เมนูหลัก">
+        <button class="nav-link active" data-view="explore">ค้นหาทักษะ</button>
+        <button class="nav-link auth-only hidden" data-view="dashboard">กิจกรรมของฉัน <span class="nav-count hidden" id="nav-count">0</span></button>
+        <button class="nav-link auth-only hidden" data-view="calendar">ปฏิทินนัดหมาย</button>
+        <button class="nav-link auth-only hidden" data-view="shop">ร้านค้า</button>
+      </nav>
+      <div class="top-actions" id="top-actions">
+        <button class="btn btn-quiet" data-auth="login">เข้าสู่ระบบ</button>
+        <button class="btn btn-dark" data-auth="register">เริ่มแลกเปลี่ยน <span aria-hidden="true">↗</span></button>
+      </div>
+      <div class="user-actions hidden" id="user-actions">
+        <button class="btn btn-outline notification-button" id="notification-button" type="button" aria-label="การแจ้งเตือน">การแจ้งเตือน <span class="notification-count hidden" id="notification-count">0</span></button>
+        <button class="btn btn-outline" data-view="create"><span class="plus">＋</span> แบ่งปันทักษะ</button>
+        <button class="avatar-button" id="user-menu" aria-label="เปิดเมนูบัญชี"><span class="avatar" id="user-avatar">น</span><span id="user-short-name">สมาชิก</span><span class="chevron">⌄</span></button>
+      </div>
+    </header>
+
+    <main id="app-main">
+      <section class="hero" id="hero">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="live-dot"></span> ชุมชนแลกเปลี่ยนทักษะของนักศึกษา</div>
+          <h1>ความรู้ของคุณ<br>มีค่าเท่ากับ <em>เวลา</em></h1>
+          <p>สอนสิ่งที่คุณถนัด รับเครดิตเวลา แล้วใช้เครดิตนั้นเรียนรู้สิ่งใหม่จากเพื่อนนักศึกษาได้ทุกเมื่อ</p>
+          <div class="hero-actions">
+            <button class="btn btn-lime btn-large" data-auth="register">เริ่มต้นใช้งาน <span aria-hidden="true">↗</span></button>
+            <button class="text-button hero-how" data-scroll="how-it-works">รู้จักธนาคารเวลา <span aria-hidden="true">↓</span></button>
+          </div>
+          <div class="hero-note"><span class="mini-avatars"><b>น</b><b>ม</b><b>ภ</b></span><span>ทักษะหลากหลาย • แลกเปลี่ยนได้อย่างเท่าเทียม</span></div>
+        </div>
+        <div class="hero-art" aria-label="ภาพประกอบการแลกเปลี่ยนเวลา">
+          <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+          <div class="orbit-label label-top"><span class="orbit-icon">✳</span><span>แบ่งปันสิ่งที่คุณถนัด<small>ทักษะของคุณมีคุณค่า</small></span></div>
+          <div class="orbit-label label-bottom"><span class="orbit-icon purple">↗</span><span>เรียนรู้อะไรใหม่ ๆ<small>ด้วยเครดิตเวลาของคุณ</small></span></div>
+          <div class="time-token"><span class="token-top">1 ชั่วโมง</span><span class="token-clock">◷</span><span class="token-bottom">= 1 เครดิตเวลา</span></div>
+          <div class="floating-spark spark-a">✦</div><div class="floating-spark spark-b">✳</div>
+        </div>
+        <div class="hero-foot"><span>แลกเปลี่ยนกันได้ โดยไม่ต้องมีเงินเป็นสื่อกลาง</span><span class="hero-arrow">⌄</span></div>
+      </section>
+
+      <section class="trust-row" aria-label="หลักการของ ChronoSwap">
+        <div><span class="trust-icon">◷</span><span><b>เวลาเท่ากัน</b><small>สอน 1 ชั่วโมง รับ 1 เครดิต</small></span></div>
+        <div><span class="trust-icon mint">⟲</span><span><b>แลกเปลี่ยนยืดหยุ่น</b><small>สอนคนหนึ่ง แล้วไปเรียนกับอีกคนได้</small></span></div>
+        <div><span class="trust-icon violet">✳</span><span><b>ชุมชนนักศึกษา</b><small>ทักษะหลากหลายจากเพื่อนรอบตัว</small></span></div>
+        <div><span class="trust-icon amber">⌖</span><span><b>นัดหมายได้เอง</b><small>เลือกเวลาเรียนที่สะดวก</small></span></div>
+      </section>
+
+      <section class="market section-wrap" id="market">
+        <div class="section-heading">
+          <div><div class="eyebrow muted-eyebrow">ตลาดแลกเปลี่ยนทักษะ</div><h2>ทักษะที่คุณอยากเรียน <span class="heading-period">.</span></h2><p>ค้นหาคนที่พร้อมแบ่งปันความรู้ แล้วนัดเวลาเรียนที่เหมาะกับคุณ</p></div>
+          <div class="market-total"><span class="total-number" id="offer-count">—</span><span>ทักษะที่เปิดสอน</span></div>
+        </div>
+        <div class="search-row">
+          <label class="search-box"><span class="search-icon">⌕</span><input id="search-input" type="search" placeholder="ลองค้นหา Python, กีตาร์, Figma..." autocomplete="off"><kbd>⌘ K</kbd></label>
+          <button class="filter-button" id="filter-button" aria-label="กรองหมวดหมู่">☷ <span>ตัวกรอง</span></button>
+        </div>
+        <div class="category-row" id="category-row" aria-label="เลือกหมวดหมู่"></div>
+        <div class="match-banner hidden" id="match-banner"><span class="match-spark">✦</span><span>จับคู่จากทักษะที่คุณอยากเรียน</span><button id="sort-match">แสดงที่ตรงกับฉันก่อน <span>↗</span></button></div>
+        <div class="offer-grid" id="offer-grid"><div class="loading-card">กำลังโหลดทักษะ...</div></div>
+        <div class="empty-state hidden" id="empty-state"><span>⌕</span><h3>ยังไม่เจอทักษะที่ค้นหา</h3><p>ลองค้นหาคำอื่น หรือเลือกดูทักษะทั้งหมด</p><button class="btn btn-outline" id="clear-search">ล้างตัวกรอง</button></div>
+      </section>
+
+      <section class="how-section" id="how-it-works">
+        <div class="how-intro"><div class="eyebrow">เรียนรู้ไปด้วยกัน</div><h2>เวลาเป็นเครดิต<br>ความรู้เป็นของทุกคน</h2><p>ChronoSwap เปลี่ยนเวลาที่คุณแบ่งปันให้กลายเป็นโอกาสในการเรียนรู้</p></div>
+        <div class="how-steps">
+          <article class="how-step"><span class="step-no">01</span><span class="step-icon">✳</span><h3>บอกเราว่าคุณทำอะไรได้</h3><p>เพิ่มทักษะที่อยากสอน หรือทักษะที่อยากเรียนลงในโปรไฟล์</p></article>
+          <article class="how-step"><span class="step-no">02</span><span class="step-icon step-green">◷</span><h3>แบ่งปันเวลา รับเครดิต</h3><p>สอนเพื่อนนักศึกษา 1 ชั่วโมง รับเครดิตเวลา 1 ชั่วโมงเข้าบัญชี</p></article>
+          <article class="how-step"><span class="step-no">03</span><span class="step-icon step-violet">↗</span><h3>ใช้เครดิตเรียนสิ่งใหม่</h3><p>นัดหมายกับใครก็ได้ในชุมชน ไม่จำเป็นต้องแลกกับคนเดิม</p></article>
+        </div>
+      </section>
+
+      <section class="bottom-cta"><div><span class="eyebrow">พร้อมเริ่มหรือยัง?</span><h2>ทักษะแรกของคุณ<br>อาจเปลี่ยนอะไรได้มากกว่าที่คิด</h2></div><button class="btn btn-dark btn-large" data-auth="register">เข้าร่วม ChronoSwap <span>↗</span></button></section>
+    </main>
+
+    <footer class="footer"><a class="brand footer-brand" href="#home"><img src="/mark.svg" alt="" width="30" height="30"><span>chrono<span class="brand-accent">swap</span><small>เวลาแลกเปลี่ยนความรู้</small></span></a><span>แบ่งปันทักษะ เรียนรู้ร่วมกัน</span><span>© ChronoSwap</span></footer>
+  </div>
+
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  <div class="modal-backdrop hidden" id="modal-backdrop" role="presentation">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" id="modal-content"></section>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
