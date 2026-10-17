@@ -519,7 +519,7 @@ async function loadChatMessages(requestId, scrollToBottom = false) {
 
 async function openChat(requestId, title) {
   state.chatRequestId = Number(requestId);
-  modal(`<div class="eyebrow">คุยเพื่อเตรียมนัดหมาย</div><h2 id="modal-title">${esc(title || "แชทกิจกรรม")}</h2><p class="modal-subtitle">ข้อความนี้มองเห็นได้เฉพาะผู้เรียนและผู้สอนในกิจกรรมนี้</p><div id="chat-messages" class="chat-messages"></div><form id="chat-form" data-request="${Number(requestId)}"><div class="field"><label for="chat-text">ข้อความ</label><textarea id="chat-text" name="body" required maxlength="2000" placeholder="พิมพ์ข้อความเพื่อคุยวันเวลา หรือรายละเอียดการเรียน"></textarea></div><div class="form-actions"><button class="btn btn-dark" type="submit">ส่งข้อความ ↗</button></div></form>`, true);
+  modal(`<div class="eyebrow">คุยเพื่อเตรียมนัดหมาย</div><h2 id="modal-title">${esc(title || "แชทกิจกรรม")}</h2><p class="modal-subtitle">ข้อความนี้มองเห็นได้เฉพาะผู้เรียนและผู้สอนในกิจกรรมนี้</p><div id="chat-messages" class="chat-messages"></div><form id="chat-form" data-request="${Number(requestId)}"><div class="field"><label for="chat-text">ข้อความ</label><textarea id="chat-text" name="body" required maxlength="2000" placeholder="พิมพ์ข้อความ แล้วกด Enter เพื่อส่ง (Shift+Enter ขึ้นบรรทัดใหม่)"></textarea></div><div class="form-actions"><button class="btn btn-dark" type="submit">ส่งข้อความ ↗</button></div></form>`, true);
   await loadChatMessages(requestId, true);
   state.chatTimer = window.setInterval(() => loadChatMessages(requestId), 4000);
 }
@@ -793,6 +793,11 @@ document.addEventListener("keydown", event => {
     event.preventDefault(); $("#search-input").focus();
   }
   if (event.key === "Enter" && event.target.matches(".offer-card")) event.target.click();
+  // แชท: Enter = ส่งข้อความ, Shift+Enter = ขึ้นบรรทัดใหม่
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.target.matches("#chat-text")) {
+    event.preventDefault();
+    if (event.target.value.trim()) event.target.form.requestSubmit();
+  }
 });
 
 $("#modal-backdrop").addEventListener("click", event => { if (event.target.id === "modal-backdrop") closeModal(); });
