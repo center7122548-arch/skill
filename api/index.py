@@ -1,5 +1,6 @@
 import os
 import sys
+from http.server import BaseHTTPRequestHandler
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -18,4 +19,6 @@ import server  # noqa: E402
 server.init_db()
 server.bootstrap_admin()
 
-handler = server.Handler
+
+class handler(server.Handler, BaseHTTPRequestHandler):
+    pass
