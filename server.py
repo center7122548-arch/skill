@@ -452,8 +452,9 @@ def match_components(interests: list[str], desired_level: str, wanted: set[str],
                      rating: float, review_count: int) -> dict:
     """คะแนนแต่ละปัจจัย ค่า 0–1"""
     title, category = offer_title.lower(), offer_category.lower()
-    keyword_match = any(interest in title for interest in interests)
-    category_match = any(interest in category for interest in interests)
+    interest_terms = [interest.lower() for interest in interests]
+    keyword_match = any(interest in title for interest in interest_terms)
+    category_match = any(interest in category for interest in interest_terms)
     skill = 1.0 if keyword_match and category_match else (0.5 if category_match else 0.0)
     time_score = len(wanted & offer_slots) / len(wanted) if wanted else 0.0
     level = 1.0 if (offer_level == "ทุกระดับ" or (desired_level and offer_level == desired_level)) else 0.5
