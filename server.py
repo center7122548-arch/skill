@@ -525,13 +525,14 @@ def match_components(interests: list[str], desired_level: str, wanted: set[str],
                      offer_category: str, offer_level: str, offer_slots: set[str],
                      rating: float, review_count: int) -> dict:
     """คะแนนแต่ละปัจจัย ค่า 0–1"""
-    title, category = offer_title.lower(), offer_category.lower()
+    title = offer_title.lower()
+    category = offer_category.strip().lower()
     skill = 0.0
     for interest in normalize_interests(interests):
         if ":" not in interest:
             continue
         wanted_category, wanted_keyword = interest.split(":", 1)
-        category_match = wanted_category.lower() in category
+        category_match = wanted_category.strip().lower() == category
         keyword_match = bool(wanted_keyword) and wanted_keyword.lower() in title
         if category_match and keyword_match:
             skill = 1.0
