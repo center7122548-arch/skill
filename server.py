@@ -19,6 +19,7 @@ import time
 import urllib.error
 import urllib.request
 from email.message import EmailMessage
+from contextlib import closing
 from getpass import getpass
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
@@ -56,6 +57,7 @@ SLOT_PERIODS = ["m", "a", "e"]  # เช้า บ่าย เย็น
 SLOT_PERIOD_WINDOWS = {"m": (6 * 3600, 12 * 3600), "a": (12 * 3600, 18 * 3600), "e": (18 * 3600, 24 * 3600)}
 THAILAND_TIMEZONE = timezone(timedelta(hours=7))
 VALID_SLOTS = {f"{d}-{p}" for d in SLOT_DAYS for p in SLOT_PERIODS}
+SKILL_CATEGORIES = {"เทคโนโลยี", "ภาษา", "ดนตรี", "ออกแบบ", "กีฬา", "ศิลปะ", "วิชาการ", "อื่น ๆ"}
 LEVELS = ["เริ่มต้น", "ฝึกฝน", "ขั้นสูง", "ทุกระดับ"]
 MATCH_WEIGHTS = {"skill": 0.40, "time": 0.30, "level": 0.15, "rep": 0.15}
 MIN_REQUEST_MINUTES = 30  # คำขอเรียนขั้นต่ำ 30 นาที ใช้เป็นเงื่อนไขกรอง "เครดิตพอ"
@@ -116,7 +118,7 @@ def password_matches(password: str, encoded: str) -> bool:
 
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with db_connect() as db:
+    with closing(db_connect()) as db, db:
         db.execute("PRAGMA journal_mode = WAL")
         db.executescript("""
         CREATE TABLE IF NOT EXISTS users (
@@ -272,6 +274,13 @@ def init_db() -> None:
             db.execute("ALTER TABLE users ADD COLUMN desired_level TEXT NOT NULL DEFAULT ''")
         if "preferred_slots" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN preferred_slots TEXT NOT NULL DEFAULT '[]'")
+        # Convert clearly paired legacy interests (category followed by its keyword).
+        for old_user in db.execute("SELECT id,interests FROM users").fetchall():
+            interests = safe_json_list(old_user["interests"])
+            normalized = normalize_interests(interests)
+            if interests != normalized:
+                db.execute("UPDATE users SET interests=? WHERE id=?",
+                           (json.dumps(normalized, ensure_ascii=False), old_user["id"]))
         offer_columns = {row["name"] for row in db.execute("PRAGMA table_info(offers)").fetchall()}
         if "deleted_at" not in offer_columns:
             db.execute("ALTER TABLE offers ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''")
@@ -287,20 +296,30 @@ def init_db() -> None:
 DEMO_MEMBERS = [
     # (อีเมล, รหัสผ่าน, ชื่อ, คณะ, คำอธิบาย, ความสนใจ)
     ("somchai@chronoswap.local", "Swap@Somchai26", "สมชาย ใจดี", "วิทยาลัยการคอมพิวเตอร์",
-     "ชอบแบ่งปันความรู้ด้านเทคโนโลยีและการทำงานดิจิทัล", ["ภาษาอังกฤษ", "กีตาร์"]),
+     "ชอบแบ่งปันความรู้ด้านเทคโนโลยีและการทำงานดิจิทัล", ["ภาษา:ภาษาอังกฤษ", "ดนตรี:กีตาร์"]),
     ("napat@chronoswap.local", "Swap@Napat26", "ณภัทร รุ่งเรือง", "คณะวิศวกรรมศาสตร์",
-     "สนุกกับการแก้โจทย์ ชอบอธิบายให้เข้าใจง่าย", ["Figma", "ภาษาอังกฤษ"]),
+     "สนุกกับการแก้โจทย์ ชอบอธิบายให้เข้าใจง่าย", ["ออกแบบ:Figma", "ภาษา:ภาษาอังกฤษ"]),
     ("mukda@chronoswap.local", "Swap@Mukda26", "มุกดา ศรีแสง", "คณะศิลปกรรมศาสตร์",
-     "ช่วยเริ่มต้นใช้งานเครื่องมือออกแบบและจัดทำพอร์ตโฟลิโอ", ["Python", "การเขียนโปรแกรม"]),
+     "ช่วยเริ่มต้นใช้งานเครื่องมือออกแบบและจัดทำพอร์ตโฟลิโอ", ["เทคโนโลยี:Python", "เทคโนโลยี:การเขียนโปรแกรม"]),
     ("puri@chronoswap.local", "Swap@Puri26", "ภูริ วงศ์คำ", "คณะมนุษยศาสตร์และสังคมศาสตร์",
-     "เรียนรู้ดนตรีได้ทีละขั้น เริ่มจากพื้นฐานที่คุณมี", ["Excel", "ภาษาอังกฤษ"]),
+     "เรียนรู้ดนตรีได้ทีละขั้น เริ่มจากพื้นฐานที่คุณมี", ["เทคโนโลยี:Excel", "ภาษา:ภาษาอังกฤษ"]),
     ("ploy@chronoswap.local", "Swap@Ploy26", "พลอย แก้วมณี", "คณะบริหารธุรกิจ",
-     "ชอบพูดคุยและช่วยกันฝึกภาษา พร้อมแชร์เทคนิคการนำเสนอ", ["Python", "ถ่ายภาพ"]),
+     "ชอบพูดคุยและช่วยกันฝึกภาษา พร้อมแชร์เทคนิคการนำเสนอ", ["เทคโนโลยี:Python", "ศิลปะ:ถ่ายภาพ"]),
     ("arm@chronoswap.local", "Swap@Arm26", "อาร์ม ธนากร", "คณะวิทยาศาสตร์",
-     "ถนัดคณิตศาสตร์และสถิติ ช่วยปูพื้นฐานแบบไม่เร่งรีบ", ["กีตาร์", "ออกแบบ"]),
+     "ถนัดคณิตศาสตร์และสถิติ ช่วยปูพื้นฐานแบบไม่เร่งรีบ", ["ดนตรี:กีตาร์", "ออกแบบ:"]),
     ("fahsai@chronoswap.local", "Swap@Fahsai26", "ฟ้าใส บุญมา", "คณะเกษตรศาสตร์",
-     "รักการถ่ายภาพและตัดต่อวิดีโอ อยากแลกเปลี่ยนกับสายเทคโนโลยี", ["Excel", "คณิตศาสตร์"]),
+     "รักการถ่ายภาพและตัดต่อวิดีโอ อยากแลกเปลี่ยนกับสายเทคโนโลยี", ["เทคโนโลยี:Excel", "วิชาการ:คณิตศาสตร์"]),
 ]
+
+LEGACY_DEMO_INTERESTS = {
+    "somchai@chronoswap.local": ["ภาษาอังกฤษ", "กีตาร์"],
+    "napat@chronoswap.local": ["Figma", "ภาษาอังกฤษ"],
+    "mukda@chronoswap.local": ["Python", "การเขียนโปรแกรม"],
+    "puri@chronoswap.local": ["Excel", "ภาษาอังกฤษ"],
+    "ploy@chronoswap.local": ["Python", "ถ่ายภาพ"],
+    "arm@chronoswap.local": ["กีตาร์", "ออกแบบ"],
+    "fahsai@chronoswap.local": ["Excel", "คณิตศาสตร์"],
+}
 
 DEMO_OFFERS = {
     "somchai@chronoswap.local": [
@@ -379,7 +398,12 @@ def seed_demo_data() -> None:
         purge_users(db, legacy)
         created = iso_now()
         for email, password, name, faculty, bio, interests in DEMO_MEMBERS:
-            if db.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
+            existing = db.execute("SELECT id,interests FROM users WHERE email=?", (email,)).fetchone()
+            if existing:
+                old_demo_interests = LEGACY_DEMO_INTERESTS.get(email)
+                if old_demo_interests and safe_json_list(existing["interests"]) == old_demo_interests:
+                    db.execute("UPDATE users SET interests=? WHERE id=?",
+                               (json.dumps(interests, ensure_ascii=False), existing["id"]))
                 continue
             cur = db.execute(
                 "INSERT INTO users(email,password_hash,full_name,faculty,bio,interests,role,email_verified,created_at) VALUES(?,?,?,?,?,?,'member',1,?)",
@@ -427,6 +451,39 @@ def clean_slots(value: object) -> list[str]:
     return [f"{d}-{p}" for d in SLOT_DAYS for p in SLOT_PERIODS if f"{d}-{p}" in picked]
 
 
+def normalize_interests(value: object) -> list[str]:
+    """Store each interest as one category:keyword pair; upgrade clear legacy pairs."""
+    if not isinstance(value, list):
+        return []
+    entries = [item.strip() for item in value if isinstance(item, str) and item.strip()]
+    normalized: list[str] = []
+    index = 0
+    while index < len(entries):
+        item = entries[index]
+        if ":" in item:
+            category, keyword = item.split(":", 1)
+            category = category.strip()
+            if category in SKILL_CATEGORIES:
+                normalized.append(f"{category}:{keyword.strip()}")
+            else:
+                normalized.append(item)
+            index += 1
+        elif item in SKILL_CATEGORIES:
+            keyword = ""
+            if (index + 1 < len(entries) and entries[index + 1] not in SKILL_CATEGORIES
+                    and ":" not in entries[index + 1]):
+                keyword = entries[index + 1]
+                index += 2
+            else:
+                index += 1
+            normalized.append(f"{item}:{keyword}")
+        else:
+            # Keep ambiguous legacy terms for the user to pair explicitly in their profile.
+            normalized.append(item)
+            index += 1
+    return list(dict.fromkeys(normalized))
+
+
 def infer_slots(text: str) -> list[str]:
     """แปลงข้อความช่วงเวลาเดิม (เช่น "เย็นวันธรรมดา") เป็นช่วงเวลาแบบมีโครงสร้าง
     ไม่ระบุวัน/ช่วง หรือ "นัดหมายล่วงหน้า" ถือว่ายืดหยุ่น (ทุกช่วง)"""
@@ -469,10 +526,18 @@ def match_components(interests: list[str], desired_level: str, wanted: set[str],
                      rating: float, review_count: int) -> dict:
     """คะแนนแต่ละปัจจัย ค่า 0–1"""
     title, category = offer_title.lower(), offer_category.lower()
-    interest_terms = [interest.lower() for interest in interests]
-    keyword_match = any(interest in title for interest in interest_terms)
-    category_match = any(interest in category for interest in interest_terms)
-    skill = 1.0 if keyword_match and category_match else (0.5 if category_match else 0.0)
+    skill = 0.0
+    for interest in normalize_interests(interests):
+        if ":" not in interest:
+            continue
+        wanted_category, wanted_keyword = interest.split(":", 1)
+        category_match = wanted_category.lower() in category
+        keyword_match = bool(wanted_keyword) and wanted_keyword.lower() in title
+        if category_match and keyword_match:
+            skill = 1.0
+            break
+        if category_match:
+            skill = max(skill, 0.5)
     time_score = len(wanted & offer_slots) / len(wanted) if wanted else 0.0
     level = 1.0 if (offer_level == "ทุกระดับ" or (desired_level and offer_level == desired_level)) else 0.5
     rep = (rating / 5.0) if review_count else 0.5  # ผู้สอนใหม่เริ่มที่ 0.5 (แก้ Cold Start)
@@ -568,7 +633,7 @@ def public_user(db: sqlite3.Connection, user_id: int) -> dict:
     eq = db.execute("SELECT frame,sticker FROM shop_equipped WHERE user_id=?", (user_id,)).fetchone()
     return {"id": row["id"], "email": row["email"], "full_name": row["full_name"],
             "university": row["university"], "faculty": row["faculty"], "bio": row["bio"],
-            "interests": safe_json_list(row["interests"]),
+            "interests": normalize_interests(safe_json_list(row["interests"])),
             "desired_level": row["desired_level"], "preferred_slots": clean_slots(safe_json_list(row["preferred_slots"])),
             "avatar_url": f"data:{row['avatar_mime']};base64,{row['avatar_data']}" if row["avatar_data"] and row["avatar_mime"] else "",
             "role": row["role"], "is_active": bool(row["is_active"]), "email_verified": bool(row["email_verified"]), "created_at": row["created_at"],
@@ -748,18 +813,19 @@ def offer_rows(db: sqlite3.Connection, user_id: int | None, query: str = "", cat
     wanted: set[str] = set()
     if user_id:
         user = db.execute("SELECT interests,desired_level,preferred_slots FROM users WHERE id=?", (user_id,)).fetchone()
-        interests = [x.lower() for x in safe_json_list(user["interests"])] if user else []
+        interests = normalize_interests(safe_json_list(user["interests"])) if user else []
         desired_level = (user["desired_level"] if user else "") or ""
         wanted = set(clean_slots(safe_json_list(user["preferred_slots"]))) if user else set()
     cos = cosmetics_for(db, (row["user_id"] for row in rows))
-    result = []
+    ranked = []
     for row in rows:
         comp = None
         if user_id and not mine:
             comp = match_components(interests, desired_level, wanted, row["title"], row["category"], row["level"],
                                    set(clean_slots(safe_json_list(row["slots"]))), float(row["rating"]), row["review_count"])
-        score = int(comp["total"] * 100 + 0.5) if comp else 0
-        result.append({"id": row["id"], "user_id": row["user_id"], "title": row["title"], "category": row["category"],
+        raw_score = comp["total"] if comp else 0.0
+        score = int(raw_score * 100 + 0.5)
+        item = {"id": row["id"], "user_id": row["user_id"], "title": row["title"], "category": row["category"],
                        "level": row["level"], "description": row["description"], "availability": row["availability"],
                        "slots": clean_slots(safe_json_list(row["slots"])),
                        "provider_name": row["full_name"], "faculty": row["faculty"], "provider_bio": row["bio"],
@@ -767,9 +833,10 @@ def offer_rows(db: sqlite3.Connection, user_id: int | None, query: str = "", cat
                        "frame": cos.get(row["user_id"], {}).get("frame", ""), "sticker": cos.get(row["user_id"], {}).get("sticker", ""),
                        "rating": round(float(row["rating"]), 1), "review_count": row["review_count"], "match_score": score,
                        "matched": bool(comp and comp["skill"] > 0),
-                       "score_detail": ({k: round(comp[k] * 100) for k in ("skill", "time", "level", "rep")} if comp else None)})
-    result.sort(key=lambda item: (item["match_score"], item["id"]), reverse=True)
-    return result
+                       "score_detail": ({k: int(comp[k] * 100 + 0.5) for k in ("skill", "time", "level", "rep")} if comp else None)}
+        ranked.append((raw_score, item))
+    ranked.sort(key=lambda pair: (pair[0], pair[1]["id"]), reverse=True)
+    return [item for _, item in ranked]
 
 
 def post_ledger(db: sqlite3.Connection, user_id: int, amount: int, kind: str, description: str, request_id: int | None) -> None:
@@ -1433,7 +1500,7 @@ class Handler(BaseHTTPRequestHandler):
         interests = body.get("interests", [])
         if not isinstance(interests, list) or len(interests) > 8 or any(not isinstance(x, str) or len(x.strip()) > 50 for x in interests):
             raise ApiError("เพิ่มทักษะที่อยากเรียนได้ไม่เกิน 8 รายการ")
-        cleaned_interests = list(dict.fromkeys(x.strip() for x in interests if x.strip()))
+        cleaned_interests = normalize_interests(interests)
         avatar_supplied = "avatar_url" in body
         avatar_data, avatar_mime = validate_avatar(body.get("avatar_url")) if avatar_supplied else ("", "")
         with db_connect() as db:
