@@ -1,4 +1,12 @@
 const CATEGORIES = ["ทั้งหมด", "เทคโนโลยี", "ภาษา", "ดนตรี", "ออกแบบ", "กีฬา", "ศิลปะ", "วิชาการ", "อื่น ๆ"];
+const SLOT_DAY_LABELS = [["mon", "จันทร์"], ["tue", "อังคาร"], ["wed", "พุธ"], ["thu", "พฤหัส"], ["fri", "ศุกร์"], ["sat", "เสาร์"], ["sun", "อาทิตย์"]];
+const SLOT_PERIOD_LABELS = [["m", "เช้า"], ["a", "บ่าย"], ["e", "เย็น"]];
+const LEVEL_OPTIONS = ["เริ่มต้น", "ฝึกฝน", "ขั้นสูง", "ทุกระดับ"];
+function slotPicker(selected = []) {
+  const chosen = new Set(selected);
+  return `<div class="slot-grid" role="group" aria-label="เลือกช่วงเวลา"><span></span>${SLOT_PERIOD_LABELS.map(([, label]) => `<span class="slot-head">${label}</span>`).join("")}${SLOT_DAY_LABELS.map(([day, dayLabel]) => `<span class="slot-day">${dayLabel}</span>${SLOT_PERIOD_LABELS.map(([p, pLabel]) => `<label class="slot-cell"><input type="checkbox" data-slot="${day}-${p}" ${chosen.has(`${day}-${p}`) ? "checked" : ""} aria-label="${dayLabel} ${pLabel}"><span></span></label>`).join("")}`).join("")}</div>`;
+}
+function pickedSlots(form) { return [...form.querySelectorAll("input[data-slot]:checked")].map(input => input.dataset.slot); }
 const STATUS_NAMES = {
   pending: "รอผู้สอนตอบรับ", accepted: "นัดหมายแล้ว", awaiting_confirmation: "รอยืนยันกิจกรรม",
   disputed: "รอตรวจสอบ", completed: "สำเร็จแล้ว", rejected: "ไม่ได้รับคำขอ",
@@ -171,14 +179,15 @@ function renderOffers() {
   empty.classList.add("hidden");
   grid.innerHTML = offers.map((offer, index) => {
     const avatarStyle = index % 3 === 1 ? "v2" : (index % 3 === 2 ? "v3" : "");
-    const match = offer.match_score > 0 && state.user?.interests?.length;
+    const match = offer.matched && state.user?.interests?.length;
     const providerAvatar = offer.avatar_url
       ? `<img src="${esc(offer.avatar_url)}" alt="">`
       : esc(initials(offer.provider_name));
     return `<article class="offer-card" data-offer="${offer.id}" tabindex="0" role="button" aria-label="ดูรายละเอียด ${esc(offer.title)}">
-      <div class="offer-topline"><span class="category-label">${esc(offer.category)}</span>${match ? '<span class="match-label">✦ ตรงกับสิ่งที่คุณสนใจ</span>' : ""}</div>
+      <div class="offer-topline"><span class="category-label">${esc(offer.category)}</span>${match ? `<span class="match-label">✦ ตรงใจ ${offer.match_score}%</span>` : ""}</div>
       <h3 class="offer-title">${esc(offer.title)}</h3><p class="offer-desc">${esc(offer.description)}</p>
       <div class="offer-meta"><span class="level-pill">${esc(offer.level)}</span><span>◷ ${esc(offer.availability || "นัดหมายล่วงหน้า")}</span></div>
+      ${offer.score_detail && state.user?.role === "member" ? `<div class="score-detail" title="คะแนนรวม = 0.40·ทักษะ + 0.30·เวลา + 0.15·ระดับ + 0.15·ชื่อเสียง">ทักษะ ${offer.score_detail.skill} · เวลา ${offer.score_detail.time} · ระดับ ${offer.score_detail.level} · ชื่อเสียง ${offer.score_detail.rep}</div>` : ""}
       <div class="offer-bottom"><button type="button" class="provider provider-btn" data-profile="${offer.user_id}" aria-label="ดูโปรไฟล์ ${esc(offer.provider_name)}"><span class="provider-avatar ${avatarStyle} ${esc(offer.frame || "")}" data-sticker="${esc(offer.sticker || "")}">${providerAvatar}</span><span><span class="provider-name">${esc(offer.provider_name)}</span><span class="provider-faculty">${esc(offer.faculty || "นักศึกษา")}</span></span></button><span class="offer-rating">${offer.review_count ? `★ <strong>${Number(offer.rating).toFixed(1)}</strong> (${offer.review_count})` : "ผู้สอนใหม่"}</span></div>
     </article>`;
   }).join("");
@@ -357,6 +366,7 @@ function renderPrivateView(view) {
     page.innerHTML = `<div class="page-heading"><div><div class="eyebrow">แบ่งปันสิ่งที่คุณรู้</div><h1>เพิ่มทักษะที่คุณสอน</h1><p>เมื่อมีคนมาเรียน คุณจะได้รับเครดิตเวลาหลังทั้งสองฝ่ายยืนยันกิจกรรม</p></div><button class="btn btn-outline" data-view="dashboard">← กลับแดชบอร์ด</button></div>
       <div class="panel" style="max-width:750px"><div class="inline-note">ทุก 1 ชั่วโมงที่สอนสำเร็จ จะได้รับ 1 เครดิตเวลา ผู้เรียนเลือกเวลานัดหมายได้จากประกาศของคุณ</div>
       <form id="offer-form"><div class="form-grid"><div class="field"><label for="offer-title">ชื่อทักษะ</label><input id="offer-title" name="title" required maxlength="100" placeholder="เช่น วาดภาพดิจิทัลเบื้องต้น"></div><div class="field"><label for="offer-category">หมวดหมู่</label><select id="offer-category" name="category" required>${CATEGORIES.slice(1).map(c => `<option>${esc(c)}</option>`).join("")}</select></div><div class="field"><label for="offer-level">ระดับที่สอนได้</label><select id="offer-level" name="level"><option>เริ่มต้น</option><option>ฝึกฝน</option><option>ทุกระดับ</option><option>ขั้นสูง</option></select></div><div class="field"><label for="offer-availability">ช่วงเวลาที่สะดวก</label><input id="offer-availability" name="availability" maxlength="120" placeholder="เช่น เย็นวันธรรมดา / นัดหมายล่วงหน้า"></div></div>
+      <div class="field"><label>ช่วงเวลาที่สอนได้</label>${slotPicker([])}<span class="field-help">ใช้จับคู่กับช่วงเวลาที่ผู้เรียนสะดวก (ไม่ติ๊กเลย = ระบบอ่านจากข้อความช่วงเวลาด้านบน)</span></div>
       <div class="field"><label for="offer-description">รายละเอียด</label><textarea id="offer-description" name="description" required maxlength="600" placeholder="บอกผู้เรียนว่าจะได้เรียนรู้อะไร เตรียมตัวอย่างไร"></textarea><span class="field-help">อย่างน้อย 12 ตัวอักษร</span></div>
       <div class="form-actions"><button type="button" class="btn btn-quiet" data-view="dashboard">ยกเลิก</button><button class="btn btn-dark" type="submit">เผยแพร่ทักษะ <span>↗</span></button></div></form></div>`;
   } else if (view === "profile") {
@@ -369,6 +379,8 @@ function renderPrivateView(view) {
       <div class="form-grid"><div class="field"><label for="profile-university">มหาวิทยาลัย</label><input id="profile-university" name="university" maxlength="120" value="${esc(user.university)}"></div><div class="field"><label for="profile-faculty">คณะ</label><input id="profile-faculty" name="faculty" maxlength="100" value="${esc(user.faculty)}"></div></div>
       <div class="field"><label for="profile-bio">แนะนำตัว</label><textarea id="profile-bio" name="bio" maxlength="500" placeholder="เล่าเกี่ยวกับตัวคุณและสิ่งที่ชอบแบ่งปัน">${esc(user.bio)}</textarea></div>
       <div class="field"><label for="profile-interests">ทักษะที่อยากเรียน</label><input id="profile-interests" name="interests" maxlength="400" value="${esc((user.interests || []).join(", "))}" placeholder="เช่น ภาษาอังกฤษ, กีตาร์, Python"><span class="field-help">คั่นแต่ละทักษะด้วยเครื่องหมายจุลภาค ใส่ได้ไม่เกิน 8 รายการ</span></div>
+      <div class="field"><label for="profile-level">ระดับที่อยากเรียน</label><select id="profile-level" name="desired_level"><option value="">ไม่ระบุ</option>${LEVEL_OPTIONS.map(level => `<option ${user.desired_level === level ? "selected" : ""}>${level}</option>`).join("")}</select><span class="field-help">ใช้จัดอันดับทักษะที่แนะนำ (ระดับตรงหรือ "ทุกระดับ" ได้คะแนนเต็ม)</span></div>
+      <div class="field"><label>ช่วงเวลาที่สะดวกเรียน</label>${slotPicker(user.preferred_slots || [])}<span class="field-help">ติ๊กช่วงที่ว่าง ระบบจะแนะนำผู้สอนที่มีเวลาตรงกันก่อน</span></div>
       <div class="form-actions"><button type="button" class="btn btn-quiet" data-action="logout">ออกจากระบบ</button><button class="btn btn-dark" type="submit">บันทึกโปรไฟล์</button></div></form></div>`;
   } else {
     const credits = dashboard.user.credits;
@@ -381,7 +393,7 @@ function renderPrivateView(view) {
       <div class="dashboard-grid"><div><div class="panel"><div class="panel-heading"><div><h2>คำขอและกิจกรรม</h2><p>ติดตามนัดหมาย แล้วยืนยันเมื่อเรียนเสร็จ</p></div><button class="panel-link" data-view="explore">ค้นหาทักษะ ↗</button></div><div class="request-list">${dashboard.requests.length ? dashboard.requests.map(requestCard).join("") : '<div class="request-empty">ยังไม่มีกิจกรรม <br> ลองค้นหาทักษะที่สนใจเพื่อเริ่มต้น</div>'}</div></div>
       <div class="panel"><div class="panel-heading"><div><h2>ทักษะที่คุณสอน</h2><p>ช่วยให้เพื่อน ๆ ค้นพบสิ่งที่คุณแบ่งปัน</p></div><button class="panel-link" data-view="create">＋ เพิ่มทักษะ</button></div>${offers.length ? `<div class="offer-manager">${offers.map(offer => `<div class="managed-offer"><h3>${esc(offer.title)}</h3><p>${esc(offer.category)} · ${esc(offer.level)}</p><div class="offer-manager-foot"><span class="tag ${offer.active ? "" : "closed"}">${offer.active ? "เปิดรับผู้เรียน" : "ปิดประกาศ"}</span>${offer.active ? `<button class="mini-btn" data-action="archive-offer" data-offer="${offer.id}">ปิดประกาศ</button>` : ""}</div></div>`).join("")}</div>` : '<div class="request-empty">ยังไม่มีประกาศทักษะ</div>'}</div></div>
       <aside><div class="panel"><div class="panel-heading"><div><h2>บัญชีเครดิตเวลา</h2><p>ทุกการเปลี่ยนแปลงบันทึกไว้อย่างโปร่งใส</p></div></div>${renderLedger(dashboard.ledger)}</div>
-      <div class="panel"><div class="panel-heading"><div><h2>ทักษะที่น่าจะถูกใจ</h2><p>ระบบจับคู่จากความสนใจในโปรไฟล์</p></div></div>${dashboard.recommendations.length ? `<div class="skill-list">${dashboard.recommendations.slice(0, 4).map(item => `<div class="skill-row"><span>${esc(item.title)}</span><small>${item.match_score ? "✦ ตรงใจ" : esc(item.category)}</small></div>`).join("")}</div><button class="panel-link" data-view="explore" style="margin-top:12px">ดูทั้งหมด ↗</button>` : '<div class="request-empty">เพิ่มทักษะที่อยากเรียนในโปรไฟล์ เพื่อรับคำแนะนำ</div>'}</div>
+      <div class="panel"><div class="panel-heading"><div><h2>ทักษะที่น่าจะถูกใจ</h2><p>ระบบจับคู่จากความสนใจในโปรไฟล์</p></div></div>${dashboard.recommendations.length ? `<div class="skill-list">${dashboard.recommendations.slice(0, 4).map(item => `<div class="skill-row"><span>${esc(item.title)}</span><small>${item.matched ? `✦ ตรงใจ ${item.match_score}%` : `${item.match_score}%`}</small></div>`).join("")}</div><button class="panel-link" data-view="explore" style="margin-top:12px">ดูทั้งหมด ↗</button>` : '<div class="request-empty">เพิ่มทักษะที่อยากเรียนในโปรไฟล์ เพื่อรับคำแนะนำ</div>'}</div>
       <div class="panel profile-card"><div class="profile-big-avatar ${esc(dashboard.user.frame)}" data-sticker="${esc(dashboard.user.sticker)}">${dashboard.user.avatar_url ? `<img src="${esc(dashboard.user.avatar_url)}" alt="">` : esc(initials(dashboard.user.full_name))}</div><div><h3>${esc(dashboard.user.full_name)}</h3><p>${esc(dashboard.user.faculty || dashboard.user.university)}</p><button class="panel-link" data-view="profile">จัดการโปรไฟล์ ↗</button></div></div></aside></div>`;
   }
   $("#app-main").append(page);
@@ -840,13 +852,13 @@ document.addEventListener("submit", async event => {
       await refreshDashboard();
       setView("dashboard");
     } else if (form.id === "offer-form") {
-      await api("/api/offers", { method: "POST", body: fields });
+      await api("/api/offers", { method: "POST", body: { ...fields, slots: pickedSlots(form) } });
       toast("เผยแพร่ทักษะของคุณแล้ว");
       await loadOffers();
       setView("dashboard");
     } else if (form.id === "profile-form") {
       const interests = (fields.interests || "").split(",").map(item => item.trim()).filter(Boolean).slice(0, 8);
-      const body = { full_name: fields.full_name, university: fields.university, faculty: fields.faculty, bio: fields.bio, interests };
+      const body = { full_name: fields.full_name, university: fields.university, faculty: fields.faculty, bio: fields.bio, interests, desired_level: fields.desired_level || "", preferred_slots: pickedSlots(form) };
       if (state.avatarDraft !== null) body.avatar_url = state.avatarDraft;
       else if (state.avatarCleared) body.avatar_url = "";
       await api("/api/profile", { method: "PATCH", body });

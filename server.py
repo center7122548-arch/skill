@@ -49,6 +49,15 @@ BOOTSTRAP_ADMIN_EMAIL = os.environ.get("CHRONOSWAP_ADMIN_EMAIL", "").strip().low
 BOOTSTRAP_ADMIN_PASSWORD = os.environ.get("CHRONOSWAP_ADMIN_PASSWORD", "")
 DEV_EMAIL_LINKS = os.environ.get("CHRONOSWAP_DEV_EMAIL_LINKS", "1" if HOST in ("127.0.0.1", "localhost") else "0") == "1"
 CREDIT_CAP = 20 * 60
+
+# ---- อัลกอริทึมจับคู่ทักษะ (4 ปัจจัย) ----
+SLOT_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+SLOT_PERIODS = ["m", "a", "e"]  # เช้า บ่าย เย็น
+VALID_SLOTS = {f"{d}-{p}" for d in SLOT_DAYS for p in SLOT_PERIODS}
+LEVELS = ["เริ่มต้น", "ฝึกฝน", "ขั้นสูง", "ทุกระดับ"]
+MATCH_WEIGHTS = {"skill": 0.40, "time": 0.30, "level": 0.15, "rep": 0.15}
+MIN_REQUEST_MINUTES = 30  # คำขอเรียนขั้นต่ำ 30 นาที ใช้เป็นเงื่อนไขกรอง "เครดิตพอ"
+THAI_DAYS = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]
 STARTING_CREDIT = 2 * 60
 SESSION_SECONDS = 60 * 60 * 24 * 14
 PASSWORD_ROUNDS = 310_000
@@ -257,9 +266,18 @@ def init_db() -> None:
             db.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
         if "email_verified" not in user_columns:
             db.execute("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1")
+        if "desired_level" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN desired_level TEXT NOT NULL DEFAULT ''")
+        if "preferred_slots" not in user_columns:
+            db.execute("ALTER TABLE users ADD COLUMN preferred_slots TEXT NOT NULL DEFAULT '[]'")
         offer_columns = {row["name"] for row in db.execute("PRAGMA table_info(offers)").fetchall()}
         if "deleted_at" not in offer_columns:
             db.execute("ALTER TABLE offers ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''")
+        if "slots" not in offer_columns:
+            db.execute("ALTER TABLE offers ADD COLUMN slots TEXT NOT NULL DEFAULT '[]'")
+        # ประกาศเดิมที่ยังไม่มีช่วงเวลาแบบมีโครงสร้าง: แปลงจากข้อความช่วงเวลาที่สะดวก (ไม่ลบข้อมูลเดิม)
+        for old in db.execute("SELECT id,availability FROM offers WHERE slots='[]'").fetchall():
+            db.execute("UPDATE offers SET slots=? WHERE id=?", (json.dumps(infer_slots(old["availability"])), old["id"]))
     if SEED_DEMO:
         seed_demo_data()
 
@@ -398,6 +416,57 @@ def reset_all_accounts() -> None:
         seed_demo_data()
 
 
+def clean_slots(value: object) -> list[str]:
+    """ตรวจรายการช่วงเวลา (เช่น "mon-e") ให้อยู่ในชุดที่กำหนด เรียงลำดับคงที่"""
+    if not isinstance(value, list):
+        return []
+    picked = {x for x in value if isinstance(x, str) and x in VALID_SLOTS}
+    return [f"{d}-{p}" for d in SLOT_DAYS for p in SLOT_PERIODS if f"{d}-{p}" in picked]
+
+
+def infer_slots(text: str) -> list[str]:
+    """แปลงข้อความช่วงเวลาเดิม (เช่น "เย็นวันธรรมดา") เป็นช่วงเวลาแบบมีโครงสร้าง
+    ไม่ระบุวัน/ช่วง หรือ "นัดหมายล่วงหน้า" ถือว่ายืดหยุ่น (ทุกช่วง)"""
+    t = text or ""
+    days: set[int] = set()
+    if "วันธรรมดา" in t:
+        days.update(range(0, 5))
+    for i, name in enumerate(THAI_DAYS):
+        if name in t:
+            days.add(i)
+    pattern = "(" + "|".join(THAI_DAYS) + ")\\s*[–-]\\s*(" + "|".join(THAI_DAYS) + ")"
+    for a, b in re.findall(pattern, t):
+        i, j = THAI_DAYS.index(a), THAI_DAYS.index(b)
+        if i <= j:
+            days.update(range(i, j + 1))
+    periods = [p for word, p in (("เช้า", "m"), ("บ่าย", "a"), ("เย็น", "e")) if word in t]
+    if not days:
+        days = set(range(7))
+    if not periods:
+        periods = list(SLOT_PERIODS)
+    return clean_slots([f"{SLOT_DAYS[i]}-{p}" for i in days for p in periods])
+
+
+def match_components(interests: list[str], desired_level: str, wanted: set[str], offer_title: str,
+                     offer_category: str, offer_level: str, offer_slots: set[str],
+                     rating: float, review_count: int) -> dict:
+    """คะแนนแต่ละปัจจัย ค่า 0–1"""
+    title, category = offer_title.lower(), offer_category.lower()
+    skill = 0.0
+    for interest in interests:
+        if interest in title:
+            skill = 1.0
+            break
+        if interest in category:
+            skill = max(skill, 0.5)
+    time_score = len(wanted & offer_slots) / len(wanted) if wanted else 0.0
+    level = 1.0 if (offer_level == "ทุกระดับ" or (desired_level and offer_level == desired_level)) else 0.5
+    rep = (rating / 5.0) if review_count else 0.5  # ผู้สอนใหม่เริ่มที่ 0.5 (แก้ Cold Start)
+    total = (MATCH_WEIGHTS["skill"] * skill + MATCH_WEIGHTS["time"] * time_score
+             + MATCH_WEIGHTS["level"] * level + MATCH_WEIGHTS["rep"] * rep)
+    return {"skill": skill, "time": time_score, "level": level, "rep": rep, "total": total}
+
+
 def safe_json_list(value: str) -> list[str]:
     try:
         parsed = json.loads(value)
@@ -479,13 +548,14 @@ def avatar_ref(db: sqlite3.Connection, user_id: int) -> str:
 
 
 def public_user(db: sqlite3.Connection, user_id: int) -> dict:
-    row = db.execute("SELECT id,email,full_name,university,faculty,bio,interests,avatar_data,avatar_mime,role,is_active,email_verified,created_at FROM users WHERE id=?", (user_id,)).fetchone()
+    row = db.execute("SELECT id,email,full_name,university,faculty,bio,interests,desired_level,preferred_slots,avatar_data,avatar_mime,role,is_active,email_verified,created_at FROM users WHERE id=?", (user_id,)).fetchone()
     if row is None:
         raise ApiError("ไม่พบบัญชีผู้ใช้", 404)
     eq = db.execute("SELECT frame,sticker FROM shop_equipped WHERE user_id=?", (user_id,)).fetchone()
     return {"id": row["id"], "email": row["email"], "full_name": row["full_name"],
             "university": row["university"], "faculty": row["faculty"], "bio": row["bio"],
             "interests": safe_json_list(row["interests"]),
+            "desired_level": row["desired_level"], "preferred_slots": clean_slots(safe_json_list(row["preferred_slots"])),
             "avatar_url": f"data:{row['avatar_mime']};base64,{row['avatar_data']}" if row["avatar_data"] and row["avatar_mime"] else "",
             "role": row["role"], "is_active": bool(row["is_active"]), "email_verified": bool(row["email_verified"]), "created_at": row["created_at"],
             "frame": (eq["frame"] if eq else ""), "sticker": SHOP_BY_ID[eq["sticker"]]["emoji"] if eq and eq["sticker"] in SHOP_BY_ID else ""}
@@ -630,7 +700,10 @@ def request_row(db: sqlite3.Connection, row: sqlite3.Row, viewer_id: int | None 
             "created_at": row["created_at"]}
 
 
-def offer_rows(db: sqlite3.Connection, user_id: int | None, query: str = "", category: str = "", mine: bool = False) -> list[dict]:
+def offer_rows(db: sqlite3.Connection, user_id: int | None, query: str = "", category: str = "", mine: bool = False,
+               recommend: bool = False) -> list[dict]:
+    if recommend and user_id and credit_totals(db, user_id)["available"] < MIN_REQUEST_MINUTES:
+        return []  # เงื่อนไขกรอง: ผู้เรียนต้องมีเครดิตพอสำหรับคำขอขั้นต่ำ
     where = ["o.active=1", "o.deleted_at=''"]
     params: list[object] = []
     if mine and user_id:
@@ -657,21 +730,29 @@ def offer_rows(db: sqlite3.Connection, user_id: int | None, query: str = "", cat
         ORDER BY o.created_at DESC, o.id DESC LIMIT 100
     """, params).fetchall()
     interests: list[str] = []
+    desired_level = ""
+    wanted: set[str] = set()
     if user_id:
-        user = db.execute("SELECT interests FROM users WHERE id=?", (user_id,)).fetchone()
+        user = db.execute("SELECT interests,desired_level,preferred_slots FROM users WHERE id=?", (user_id,)).fetchone()
         interests = [x.lower() for x in safe_json_list(user["interests"])] if user else []
+        desired_level = (user["desired_level"] if user else "") or ""
+        wanted = set(clean_slots(safe_json_list(user["preferred_slots"]))) if user else set()
     cos = cosmetics_for(db, (row["user_id"] for row in rows))
     result = []
     for row in rows:
-        title = row["title"].lower()
-        category_name = row["category"].lower()
-        score = sum(3 if interest in title else (1 if interest in category_name else 0) for interest in interests)
+        comp = None
+        if user_id and not mine:
+            comp = match_components(interests, desired_level, wanted, row["title"], row["category"], row["level"],
+                                   set(clean_slots(safe_json_list(row["slots"]))), float(row["rating"]), row["review_count"])
+        score = round(comp["total"] * 100) if comp else 0
         result.append({"id": row["id"], "user_id": row["user_id"], "title": row["title"], "category": row["category"],
                        "level": row["level"], "description": row["description"], "availability": row["availability"],
                        "provider_name": row["full_name"], "faculty": row["faculty"], "provider_bio": row["bio"],
                        "avatar_url": f"data:{row['avatar_mime']};base64,{row['avatar_data']}" if row["avatar_data"] and row["avatar_mime"] else "",
                        "frame": cos.get(row["user_id"], {}).get("frame", ""), "sticker": cos.get(row["user_id"], {}).get("sticker", ""),
-                       "rating": round(float(row["rating"]), 1), "review_count": row["review_count"], "match_score": score})
+                       "rating": round(float(row["rating"]), 1), "review_count": row["review_count"], "match_score": score,
+                       "matched": bool(comp and comp["skill"] > 0),
+                       "score_detail": ({k: round(comp[k] * 100) for k in ("skill", "time", "level", "rep")} if comp else None)})
     result.sort(key=lambda item: (item["match_score"], item["id"]), reverse=True)
     return result
 
@@ -1109,7 +1190,7 @@ class Handler(BaseHTTPRequestHandler):
             movements = [{"amount_minutes": x["amount_minutes"], "kind": x["kind"], "description": x["description"], "created_at": x["created_at"]} for x in ledger]
             completed = db.execute("SELECT COUNT(*) FROM requests WHERE (requester_id=? OR provider_id=?) AND status='completed'", (user["id"], user["id"])).fetchone()[0]
             pending = db.execute(f"SELECT COUNT(*) FROM requests WHERE (requester_id=? OR provider_id=?) AND status IN ({marks})", (user["id"], user["id"], *ACTIVE_HOLD_STATES)).fetchone()[0]
-            recommendations = offer_rows(db, user["id"], "", "")[:6]
+            recommendations = offer_rows(db, user["id"], "", "", recommend=True)[:6]
         self.send_json(200, {"user": current, "offers": own_offers, "requests": requests, "ledger": movements,
                              "recommendations": recommendations, "stats": {"completed": completed, "active_requests": pending}})
 
@@ -1346,6 +1427,13 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 db.execute("UPDATE users SET full_name=?,university=?,faculty=?,bio=?,interests=? WHERE id=?",
                            (name, university, faculty, bio, json.dumps(cleaned_interests, ensure_ascii=False), user["id"]))
+            if "desired_level" in body:
+                level_value = body.get("desired_level") or ""
+                if level_value not in LEVELS + [""]:
+                    raise ApiError("ระดับที่อยากเรียนไม่ถูกต้อง")
+                db.execute("UPDATE users SET desired_level=? WHERE id=?", (level_value, user["id"]))
+            if "preferred_slots" in body:
+                db.execute("UPDATE users SET preferred_slots=? WHERE id=?", (json.dumps(clean_slots(body.get("preferred_slots"))), user["id"]))
         self.send_json(200, {"ok": True})
 
     def create_offer(self, body: dict) -> None:
@@ -1363,8 +1451,9 @@ class Handler(BaseHTTPRequestHandler):
             active = db.execute("SELECT COUNT(*) FROM offers WHERE user_id=? AND active=1", (user["id"],)).fetchone()[0]
             if active >= 12:
                 raise ApiError("ลงประกาศที่เปิดใช้งานได้ไม่เกิน 12 รายการ")
-            cur = db.execute("INSERT INTO offers(user_id,title,category,level,description,availability,created_at) VALUES(?,?,?,?,?,?,?)",
-                             (user["id"], title, category, level, description, availability, iso_now()))
+            slots = clean_slots(body.get("slots")) or infer_slots(availability)
+            cur = db.execute("INSERT INTO offers(user_id,title,category,level,description,availability,slots,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                             (user["id"], title, category, level, description, availability, json.dumps(slots), iso_now()))
         self.send_json(201, {"id": cur.lastrowid})
 
     def archive_offer(self, path: str) -> None:
