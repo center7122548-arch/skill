@@ -452,13 +452,9 @@ def match_components(interests: list[str], desired_level: str, wanted: set[str],
                      rating: float, review_count: int) -> dict:
     """คะแนนแต่ละปัจจัย ค่า 0–1"""
     title, category = offer_title.lower(), offer_category.lower()
-    skill = 0.0
-    for interest in interests:
-        if interest in title:
-            skill = 1.0
-            break
-        if interest in category:
-            skill = max(skill, 0.5)
+    keyword_match = any(interest in title for interest in interests)
+    category_match = any(interest in category for interest in interests)
+    skill = 1.0 if keyword_match and category_match else (0.5 if category_match else 0.0)
     time_score = len(wanted & offer_slots) / len(wanted) if wanted else 0.0
     level = 1.0 if (offer_level == "ทุกระดับ" or (desired_level and offer_level == desired_level)) else 0.5
     rep = (rating / 5.0) if review_count else 0.5  # ผู้สอนใหม่เริ่มที่ 0.5 (แก้ Cold Start)
