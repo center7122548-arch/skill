@@ -53,6 +53,8 @@ CREDIT_CAP = 20 * 60
 # ---- อัลกอริทึมจับคู่ทักษะ (4 ปัจจัย) ----
 SLOT_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 SLOT_PERIODS = ["m", "a", "e"]  # เช้า บ่าย เย็น
+SLOT_PERIOD_WINDOWS = {"m": (6 * 3600, 12 * 3600), "a": (12 * 3600, 18 * 3600), "e": (18 * 3600, 24 * 3600)}
+THAILAND_TIMEZONE = timezone(timedelta(hours=7))
 VALID_SLOTS = {f"{d}-{p}" for d in SLOT_DAYS for p in SLOT_PERIODS}
 LEVELS = ["เริ่มต้น", "ฝึกฝน", "ขั้นสูง", "ทุกระดับ"]
 MATCH_WEIGHTS = {"skill": 0.40, "time": 0.30, "level": 0.15, "rep": 0.15}
@@ -386,8 +388,9 @@ def seed_demo_data() -> None:
             db.execute("INSERT INTO ledger(user_id,amount_minutes,kind,description,created_at) VALUES(?,?,?,?,?)",
                        (cur.lastrowid, STARTING_CREDIT, "welcome", "เครดิตต้อนรับสมาชิกใหม่ 2 ชั่วโมง", created))
             for title, category, level, description, availability in DEMO_OFFERS.get(email, []):
-                db.execute("INSERT INTO offers(user_id,title,category,level,description,availability,created_at) VALUES(?,?,?,?,?,?,?)",
-                           (cur.lastrowid, title, category, level, description, availability, created))
+                slots = json.dumps(infer_slots(availability))
+                db.execute("INSERT INTO offers(user_id,title,category,level,description,availability,slots,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                           (cur.lastrowid, title, category, level, description, availability, slots, created))
         if not db.execute("SELECT 1 FROM users WHERE email=?", (ADMIN_EMAIL,)).fetchone():
             db.execute(
                 "INSERT INTO users(email,password_hash,full_name,faculty,bio,interests,role,email_verified,created_at) VALUES(?,?,?,?,?,?,'admin',1,?)",
@@ -445,6 +448,20 @@ def infer_slots(text: str) -> list[str]:
     if not periods:
         periods = list(SLOT_PERIODS)
     return clean_slots([f"{SLOT_DAYS[i]}-{p}" for i in days for p in periods])
+
+
+def schedule_fits_offer_slots(offer_slots: set[str], scheduled: datetime, duration_minutes: int) -> bool:
+    """Check that the entire appointment fits one of the provider's Bangkok-time slots."""
+    if not scheduled.tzinfo or duration_minutes <= 0:
+        return False
+    local_start = scheduled.astimezone(THAILAND_TIMEZONE)
+    day = SLOT_DAYS[local_start.weekday()]
+    start_second = local_start.hour * 3600 + local_start.minute * 60 + local_start.second
+    end_second = start_second + duration_minutes * 60
+    for period, (window_start, window_end) in SLOT_PERIOD_WINDOWS.items():
+        if f"{day}-{period}" in offer_slots and window_start <= start_second and end_second <= window_end:
+            return True
+    return False
 
 
 def match_components(interests: list[str], desired_level: str, wanted: set[str], offer_title: str,
@@ -741,9 +758,10 @@ def offer_rows(db: sqlite3.Connection, user_id: int | None, query: str = "", cat
         if user_id and not mine:
             comp = match_components(interests, desired_level, wanted, row["title"], row["category"], row["level"],
                                    set(clean_slots(safe_json_list(row["slots"]))), float(row["rating"]), row["review_count"])
-        score = round(comp["total"] * 100) if comp else 0
+        score = int(comp["total"] * 100 + 0.5) if comp else 0
         result.append({"id": row["id"], "user_id": row["user_id"], "title": row["title"], "category": row["category"],
                        "level": row["level"], "description": row["description"], "availability": row["availability"],
+                       "slots": clean_slots(safe_json_list(row["slots"])),
                        "provider_name": row["full_name"], "faculty": row["faculty"], "provider_bio": row["bio"],
                        "avatar_url": f"data:{row['avatar_mime']};base64,{row['avatar_data']}" if row["avatar_data"] and row["avatar_mime"] else "",
                        "frame": cos.get(row["user_id"], {}).get("frame", ""), "sticker": cos.get(row["user_id"], {}).get("sticker", ""),
@@ -1021,7 +1039,8 @@ class Handler(BaseHTTPRequestHandler):
                 LEFT JOIN offers o ON o.id=q.offer_id
                 WHERE r.reviewee_id=? ORDER BY r.id DESC LIMIT 30""", (member_id,))]
             offers = [{"id": o["id"], "user_id": member_id, "title": o["title"], "category": o["category"], "level": o["level"],
-                       "description": o["description"], "availability": o["availability"]} for o in db.execute(
+                       "description": o["description"], "availability": o["availability"],
+                       "slots": clean_slots(safe_json_list(o["slots"]))} for o in db.execute(
                 "SELECT * FROM offers WHERE user_id=? AND active=1 AND deleted_at='' ORDER BY created_at DESC, id DESC", (member_id,))]
         self.send_json(200, {"profile": {
             "id": member_id, "full_name": person["full_name"], "university": person["university"], "faculty": person["faculty"],
@@ -1497,6 +1516,9 @@ class Handler(BaseHTTPRequestHandler):
             offer = db.execute("SELECT * FROM offers WHERE id=? AND active=1", (offer_id,)).fetchone()
             if not offer or offer["user_id"] == user["id"]:
                 raise ApiError("ไม่พบประกาศที่เลือก หรือไม่สามารถขอเรียนกับประกาศของตนเองได้", 404)
+            offer_slots = set(clean_slots(safe_json_list(offer["slots"])))
+            if not schedule_fits_offer_slots(offer_slots, scheduled, duration):
+                raise ApiError("เวลานัดหมายต้องอยู่ภายในช่วงที่ผู้สอนระบุ (เช้า 06:00–12:00, บ่าย 12:00–18:00, เย็น 18:00–24:00) กรุณาเลือกเวลาใหม่", 409)
             learner = credit_totals(db, user["id"])
             teacher = credit_totals(db, offer["user_id"])
             if learner["available"] < duration:

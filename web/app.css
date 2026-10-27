@@ -3244,7 +3244,8 @@ a {
   align-items: center;
   max-width: 340px;
 }
-.slot-head { font-size: 12px; color: #7d8a84; text-align: center; }
+.slot-head { font-size: 12px; line-height: 1.2; color: #7d8a84; text-align: center; }
+.slot-head small { display: block; margin-top: 2px; font-size: 9px; }
 .slot-day { font-size: 13px; color: #58655e; }
 .slot-cell {
   position: relative;

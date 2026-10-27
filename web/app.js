@@ -1,12 +1,33 @@
 const CATEGORIES = ["ทั้งหมด", "เทคโนโลยี", "ภาษา", "ดนตรี", "ออกแบบ", "กีฬา", "ศิลปะ", "วิชาการ", "อื่น ๆ"];
 const SLOT_DAY_LABELS = [["mon", "จันทร์"], ["tue", "อังคาร"], ["wed", "พุธ"], ["thu", "พฤหัส"], ["fri", "ศุกร์"], ["sat", "เสาร์"], ["sun", "อาทิตย์"]];
-const SLOT_PERIOD_LABELS = [["m", "เช้า"], ["a", "บ่าย"], ["e", "เย็น"]];
+const SLOT_PERIOD_LABELS = [["m", "เช้า", "06–12"], ["a", "บ่าย", "12–18"], ["e", "เย็น", "18–24"]];
 const LEVEL_OPTIONS = ["เริ่มต้น", "ฝึกฝน", "ขั้นสูง", "ทุกระดับ"];
 function slotPicker(selected = []) {
   const chosen = new Set(selected);
-  return `<div class="slot-grid" role="group" aria-label="เลือกช่วงเวลา"><span></span>${SLOT_PERIOD_LABELS.map(([, label]) => `<span class="slot-head">${label}</span>`).join("")}${SLOT_DAY_LABELS.map(([day, dayLabel]) => `<span class="slot-day">${dayLabel}</span>${SLOT_PERIOD_LABELS.map(([p, pLabel]) => `<label class="slot-cell"><input type="checkbox" data-slot="${day}-${p}" ${chosen.has(`${day}-${p}`) ? "checked" : ""} aria-label="${dayLabel} ${pLabel}"><span></span></label>`).join("")}`).join("")}</div>`;
+  return `<div class="slot-grid" role="group" aria-label="เลือกช่วงเวลา"><span></span>${SLOT_PERIOD_LABELS.map(([, label, hours]) => `<span class="slot-head"><span>${label}</span><small>${hours}</small></span>`).join("")}${SLOT_DAY_LABELS.map(([day, dayLabel]) => `<span class="slot-day">${dayLabel}</span>${SLOT_PERIOD_LABELS.map(([p, pLabel, hours]) => `<label class="slot-cell"><input type="checkbox" data-slot="${day}-${p}" ${chosen.has(`${day}-${p}`) ? "checked" : ""} aria-label="${dayLabel} ${pLabel} ${hours}"><span></span></label>`).join("")}`).join("")}</div>`;
 }
 function pickedSlots(form) { return [...form.querySelectorAll("input[data-slot]:checked")].map(input => input.dataset.slot); }
+function formatOfferSlots(slots = []) {
+  const selected = new Set(slots);
+  if (!selected.size) return "";
+  if (SLOT_DAY_LABELS.every(([day]) => SLOT_PERIOD_LABELS.every(([period]) => selected.has(`${day}-${period}`)))) {
+    return "ทุกวัน 06:00–24:00";
+  }
+  const daysFor = period => SLOT_DAY_LABELS.filter(([day]) => selected.has(`${day}-${period}`)).map(([, label]) => label);
+  const formatDays = days => {
+    if (days.length === 7) return "ทุกวัน";
+    if (days.length === 5 && days.every((day, index) => day === SLOT_DAY_LABELS[index][1])) return "วันธรรมดา";
+    if (days.length === 2 && days[0] === "เสาร์" && days[1] === "อาทิตย์") return "เสาร์–อาทิตย์";
+    return days.join(", ");
+  };
+  return SLOT_PERIOD_LABELS.map(([period, label, hours]) => {
+    const days = daysFor(period);
+    return days.length ? `${formatDays(days)} ${label} (${hours})` : "";
+  }).filter(Boolean).join(" · ");
+}
+function offerAvailabilityText(offer) {
+  return formatOfferSlots(offer.slots) || offer.availability || "นัดหมายล่วงหน้า";
+}
 const STATUS_NAMES = {
   pending: "รอผู้สอนตอบรับ", accepted: "นัดหมายแล้ว", awaiting_confirmation: "รอยืนยันกิจกรรม",
   disputed: "รอตรวจสอบ", completed: "สำเร็จแล้ว", rejected: "ไม่ได้รับคำขอ",
@@ -65,9 +86,8 @@ function formatDate(value, includeTime = true) {
   } catch { return "เวลานัดหมาย"; }
 }
 
-function localDateTimeValue(date) {
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+function bangkokDateTimeValue(date) {
+  return new Date(date.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 16);
 }
 
 function modal(content, wide = false) {
@@ -186,7 +206,7 @@ function renderOffers() {
     return `<article class="offer-card" data-offer="${offer.id}" tabindex="0" role="button" aria-label="ดูรายละเอียด ${esc(offer.title)}">
       <div class="offer-topline"><span class="category-label">${esc(offer.category)}</span>${match ? `<span class="match-label">✦ ตรงใจ ${offer.match_score}%</span>` : ""}</div>
       <h3 class="offer-title">${esc(offer.title)}</h3><p class="offer-desc">${esc(offer.description)}</p>
-      <div class="offer-meta"><span class="level-pill">${esc(offer.level)}</span><span>◷ ${esc(offer.availability || "นัดหมายล่วงหน้า")}</span></div>
+      <div class="offer-meta"><span class="level-pill">${esc(offer.level)}</span><span>◷ ${esc(offerAvailabilityText(offer))}</span></div>
       ${offer.score_detail && state.user?.role === "member" ? `<div class="score-detail" title="คะแนนรวม = 0.40·ทักษะ + 0.30·เวลา + 0.15·ระดับ + 0.15·ชื่อเสียง">ทักษะ ${offer.score_detail.skill} · เวลา ${offer.score_detail.time} · ระดับ ${offer.score_detail.level} · ชื่อเสียง ${offer.score_detail.rep}</div>` : ""}
       <div class="offer-bottom"><button type="button" class="provider provider-btn" data-profile="${offer.user_id}" aria-label="ดูโปรไฟล์ ${esc(offer.provider_name)}"><span class="provider-avatar ${avatarStyle} ${esc(offer.frame || "")}" data-sticker="${esc(offer.sticker || "")}">${providerAvatar}</span><span><span class="provider-name">${esc(offer.provider_name)}</span><span class="provider-faculty">${esc(offer.faculty || "นักศึกษา")}</span></span></button><span class="offer-rating">${offer.review_count ? `★ <strong>${Number(offer.rating).toFixed(1)}</strong> (${offer.review_count})` : "ผู้สอนใหม่"}</span></div>
     </article>`;
@@ -366,7 +386,7 @@ function renderPrivateView(view) {
     page.innerHTML = `<div class="page-heading"><div><div class="eyebrow">แบ่งปันสิ่งที่คุณรู้</div><h1>เพิ่มทักษะที่คุณสอน</h1><p>เมื่อมีคนมาเรียน คุณจะได้รับเครดิตเวลาหลังทั้งสองฝ่ายยืนยันกิจกรรม</p></div><button class="btn btn-outline" data-view="dashboard">← กลับแดชบอร์ด</button></div>
       <div class="panel" style="max-width:750px"><div class="inline-note">ทุก 1 ชั่วโมงที่สอนสำเร็จ จะได้รับ 1 เครดิตเวลา ผู้เรียนเลือกเวลานัดหมายได้จากประกาศของคุณ</div>
       <form id="offer-form"><div class="form-grid"><div class="field"><label for="offer-title">ชื่อทักษะ</label><input id="offer-title" name="title" required maxlength="100" placeholder="เช่น วาดภาพดิจิทัลเบื้องต้น"></div><div class="field"><label for="offer-category">หมวดหมู่</label><select id="offer-category" name="category" required>${CATEGORIES.slice(1).map(c => `<option>${esc(c)}</option>`).join("")}</select></div><div class="field"><label for="offer-level">ระดับที่สอนได้</label><select id="offer-level" name="level"><option>เริ่มต้น</option><option>ฝึกฝน</option><option>ทุกระดับ</option><option>ขั้นสูง</option></select></div><div class="field"><label for="offer-availability">ช่วงเวลาที่สะดวก</label><input id="offer-availability" name="availability" maxlength="120" placeholder="เช่น เย็นวันธรรมดา / นัดหมายล่วงหน้า"></div></div>
-      <div class="field"><label>ช่วงเวลาที่สอนได้</label>${slotPicker([])}<span class="field-help">ใช้จับคู่กับช่วงเวลาที่ผู้เรียนสะดวก (ไม่ติ๊กเลย = ระบบอ่านจากข้อความช่วงเวลาด้านบน)</span></div>
+      <div class="field"><label>ช่วงเวลาที่สอนได้</label>${slotPicker([])}<span class="field-help">เวลาไทย: เช้า 06:00–12:00 · บ่าย 12:00–18:00 · เย็น 18:00–24:00 ระบบรับนัดเฉพาะช่วงที่เลือก (ไม่ติ๊กเลย = อ่านจากข้อความช่วงเวลาด้านบน)</span></div>
       <div class="field"><label for="offer-description">รายละเอียด</label><textarea id="offer-description" name="description" required maxlength="600" placeholder="บอกผู้เรียนว่าจะได้เรียนรู้อะไร เตรียมตัวอย่างไร"></textarea><span class="field-help">อย่างน้อย 12 ตัวอักษร</span></div>
       <div class="form-actions"><button type="button" class="btn btn-quiet" data-view="dashboard">ยกเลิก</button><button class="btn btn-dark" type="submit">เผยแพร่ทักษะ <span>↗</span></button></div></form></div>`;
   } else if (view === "profile") {
@@ -380,7 +400,7 @@ function renderPrivateView(view) {
       <div class="field"><label for="profile-bio">แนะนำตัว</label><textarea id="profile-bio" name="bio" maxlength="500" placeholder="เล่าเกี่ยวกับตัวคุณและสิ่งที่ชอบแบ่งปัน">${esc(user.bio)}</textarea></div>
       <div class="field"><label for="profile-interests">ทักษะที่อยากเรียน</label><input id="profile-interests" name="interests" maxlength="400" value="${esc((user.interests || []).join(", "))}" placeholder="เช่น เทคโนโลยี, Python, ดนตรี, กีตาร์"><span class="field-help">ใส่หมวดและคำสำคัญแยกกัน เช่น เทคโนโลยี, Python; ตรงทั้งคู่ได้คะแนนเต็ม ตรงเฉพาะหมวดได้ครึ่งคะแนน (ไม่เกิน 8 รายการ)</span></div>
       <div class="field"><label for="profile-level">ระดับที่อยากเรียน</label><select id="profile-level" name="desired_level"><option value="">ไม่ระบุ</option>${LEVEL_OPTIONS.map(level => `<option ${user.desired_level === level ? "selected" : ""}>${level}</option>`).join("")}</select><span class="field-help">ใช้จัดอันดับทักษะที่แนะนำ (ระดับตรงหรือ "ทุกระดับ" ได้คะแนนเต็ม)</span></div>
-      <div class="field"><label>ช่วงเวลาที่สะดวกเรียน</label>${slotPicker(user.preferred_slots || [])}<span class="field-help">ติ๊กช่วงที่ว่าง ระบบจะแนะนำผู้สอนที่มีเวลาตรงกันก่อน</span></div>
+      <div class="field"><label>ช่วงเวลาที่สะดวกเรียน</label>${slotPicker(user.preferred_slots || [])}<span class="field-help">เวลาไทย: เช้า 06:00–12:00 · บ่าย 12:00–18:00 · เย็น 18:00–24:00 ใช้ช่วยจัดอันดับคำแนะนำ</span></div>
       <div class="form-actions"><button type="button" class="btn btn-quiet" data-action="logout">ออกจากระบบ</button><button class="btn btn-dark" type="submit">บันทึกโปรไฟล์</button></div></form></div>`;
   } else {
     const credits = dashboard.user.credits;
@@ -603,12 +623,12 @@ async function verifyPendingEmail() {
 function openBooking(offer) {
   if (!state.user) { openAuth("login"); toast("เข้าสู่ระบบก่อนส่งคำขอเรียน", "error"); return; }
   const credits = state.dashboard?.user?.credits || state.user.credits || { available: 120 };
-  const minDate = localDateTimeValue(new Date(Date.now() + 60 * 60 * 1000));
+  const minDate = bangkokDateTimeValue(new Date(Date.now() + 60 * 60 * 1000));
   modal(`<div class="eyebrow">ส่งคำขอเรียน</div><h2 id="modal-title">${esc(offer.title)}</h2><p class="modal-subtitle modal-provider">${miniAvatar(offer.provider_name, offer.avatar_url, offer.frame, offer.sticker)}<span>นัดหมายกับ <button type="button" class="link-btn" data-profile="${offer.user_id}">${esc(offer.provider_name)}</button> · ${esc(offer.faculty || "นักศึกษา")}</span></p>
-    <div class="modal-offer-meta"><span class="category-label">${esc(offer.category)}</span><span class="category-label">${esc(offer.level)}</span></div><div class="modal-offer-summary">${esc(offer.description)}<br><br><strong>ช่วงเวลาที่ผู้สอนสะดวก:</strong> ${esc(offer.availability || "นัดหมายล่วงหน้า")}</div>
+    <div class="modal-offer-meta"><span class="category-label">${esc(offer.category)}</span><span class="category-label">${esc(offer.level)}</span></div><div class="modal-offer-summary">${esc(offer.description)}<br><br><strong>ช่วงเวลาที่ผู้สอนสะดวก:</strong> ${esc(offerAvailabilityText(offer))}</div>
     <div class="inline-note">เครดิตที่ใช้ได้ ${credits.unlimited ? "ไม่จำกัด" : formatDuration(credits.available)} · จะกันเครดิตไว้ก่อน และโอนให้ผู้สอนเมื่อทั้งสองฝ่ายยืนยันว่าเรียนเสร็จ</div>
-    <form id="booking-form" data-offer="${offer.id}"><div class="form-grid"><div class="field"><label for="booking-duration">เวลาเรียน</label><select id="booking-duration" name="duration_minutes"><option value="30">30 นาที</option><option value="60" selected>1 ชั่วโมง</option><option value="90">1 ชั่วโมง 30 นาที</option><option value="120">2 ชั่วโมง</option><option value="180">3 ชั่วโมง</option></select></div><div class="field"><label for="booking-date">วันและเวลา</label><input id="booking-date" name="scheduled_at" type="datetime-local" min="${minDate}" required></div></div>
-    <div class="field"><label for="booking-message">บอกผู้สอนเพิ่มเติม (ไม่บังคับ)</label><textarea id="booking-message" name="message" maxlength="400" placeholder="อยากเรียนหัวข้อไหน หรือมีพื้นฐานอะไรบ้าง"></textarea></div><div class="form-actions"><button type="button" class="btn btn-quiet" data-close-modal>ยกเลิก</button><button class="btn btn-dark" type="submit">ส่งคำขอเรียน <span>↗</span></button></div></form><div class="booking-footnote">ระบบตรวจเวลานัดหมายที่ซ้อนกันให้อัตโนมัติ หลังส่งคำขอคุยกับผู้สอนได้จากหน้าแชท</div><button class="text-link report-offer-link" data-action="report-offer" data-id="${offer.id}">รายงานประกาศหรือผู้สอน</button>`, true);
+    <form id="booking-form" data-offer="${offer.id}"><div class="form-grid"><div class="field"><label for="booking-duration">เวลาเรียน</label><select id="booking-duration" name="duration_minutes"><option value="30">30 นาที</option><option value="60" selected>1 ชั่วโมง</option><option value="90">1 ชั่วโมง 30 นาที</option><option value="120">2 ชั่วโมง</option><option value="180">3 ชั่วโมง</option></select></div><div class="field"><label for="booking-date">วันและเวลา (เวลาไทย)</label><input id="booking-date" name="scheduled_at" type="datetime-local" min="${minDate}" required></div></div>
+    <div class="field"><label for="booking-message">บอกผู้สอนเพิ่มเติม (ไม่บังคับ)</label><textarea id="booking-message" name="message" maxlength="400" placeholder="อยากเรียนหัวข้อไหน หรือมีพื้นฐานอะไรบ้าง"></textarea></div><div class="form-actions"><button type="button" class="btn btn-quiet" data-close-modal>ยกเลิก</button><button class="btn btn-dark" type="submit">ส่งคำขอเรียน <span>↗</span></button></div></form><div class="booking-footnote">ต้องเลือกเวลาเริ่มและเวลาจบให้อยู่ในช่วงที่ผู้สอนระบุ: เช้า 06:00–12:00, บ่าย 12:00–18:00 หรือเย็น 18:00–24:00 (เวลาไทย) · ระบบป้องกันเวลานัดซ้อนให้อัตโนมัติ</div><button class="text-link report-offer-link" data-action="report-offer" data-id="${offer.id}">รายงานประกาศหรือผู้สอน</button>`, true);
 }
 
 function openDispute(requestId) {
@@ -633,7 +653,7 @@ async function openProfile(memberId) {
   const offers = profile.offers.length
     ? profile.offers.map(offer => `<div class="tp-course"><div class="tp-course-head"><h4>${esc(offer.title)}</h4><span class="tag">${esc(offer.category)}</span></div>
         <p>${esc(offer.description)}</p>
-        <div class="tp-course-meta"><span class="level-pill">${esc(offer.level)}</span><span>◷ ${esc(offer.availability || "นัดหมายล่วงหน้า")}</span>${profile.is_self ? "" : `<button type="button" class="mini-btn primary" data-profile-book="${offer.id}">ขอเรียน</button>`}</div></div>`).join("")
+        <div class="tp-course-meta"><span class="level-pill">${esc(offer.level)}</span><span>◷ ${esc(offerAvailabilityText(offer))}</span>${profile.is_self ? "" : `<button type="button" class="mini-btn primary" data-profile-book="${offer.id}">ขอเรียน</button>`}</div></div>`).join("")
     : '<div class="request-empty">ตอนนี้ยังไม่มีคอร์สที่เปิดสอน</div>';
   const reviews = profile.reviews.length
     ? profile.reviews.map(review => `<div class="tp-review"><div class="tp-review-top"><span class="tp-stars" aria-label="${review.rating} จาก 5 ดาว">${starText(review.rating)}</span><small>${esc(review.reviewer_name)} · ${formatDate(review.created_at)}</small></div>${review.offer_title ? `<small class="tp-review-course">คอร์ส: ${esc(review.offer_title)}</small>` : ""}${review.comment ? `<p>${esc(review.comment)}</p>` : ""}</div>`).join("")
@@ -844,7 +864,7 @@ document.addEventListener("submit", async event => {
       if (mode === "register" && result.verification_url) await showVerificationLink(result);
       else if (mode === "register" && result.verification_email_sent) toast("ส่งอีเมลยืนยันแล้ว กรุณาตรวจกล่องจดหมาย");
     } else if (form.id === "booking-form") {
-      const scheduled = new Date(fields.scheduled_at);
+      const scheduled = new Date(`${fields.scheduled_at}:00+07:00`);
       if (!Number.isFinite(scheduled.getTime())) throw new Error("เลือกวันและเวลานัดหมาย");
       const result = await api("/api/requests", { method: "POST", body: { offer_id: Number(form.dataset.offer), duration_minutes: Number(fields.duration_minutes), scheduled_at: scheduled.toISOString(), message: fields.message || "" } });
       closeModal();
